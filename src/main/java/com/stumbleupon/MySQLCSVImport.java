@@ -1,5 +1,6 @@
 package com.stumbleupon;
 
+import com.csvreader.CsvReader;
 import org.apache.commons.io.FileUtils;
 import org.json.*;
 import org.w3c.dom.*;
@@ -32,6 +33,8 @@ public class MySQLCSVImport {
   private final String tableName;
   private final Map<String, String> columns =
     new HashMap<String, String>();
+  private final File TMPDIR = new File(System.getProperty("java.io.tmpdir"));
+  private final int expectedColumnCount;
 
   public MySQLCSVImport(final File csvFile, final File schema,
       final File mapping)
@@ -40,12 +43,60 @@ public class MySQLCSVImport {
     this.csv = csvFile;
     if (!schema.exists()) throw new FileNotFoundException(schema.getPath());
     this.schema = readSchema(schema);
+    this.expectedColumnCount = this.schema.size();
     if (!mapping.exists()) throw new FileNotFoundException(mapping.getPath());
     this.tableName = readMapping(mapping, this.columns);
   }
 
-  public void import() {
+  /**
+   * Start the import
+   */
+  public void process() throws IOException {
+    File indexStore = new File(TMPDIR, this.csv.getName() + ".index");
+    long index = readCurrentIndex(indexStore);
+    CsvReader reader = new CsvReader(this.csv.getPath());
+    DataOutputStream dos = new DataOutputStream(new FileOutputStream(indexStore));
+    try {
+      // Skip to current position.
+      while (index < reader.getCurrentRecord()) reader.skipRecord();
+      while (reader.readRecord()) {
+        doRecord(reader);
+        dos.writeLong(reader.getCurrentRecord());
+        dos.flush();
+      }
+    } finally {
+      reader.close();
+      dos.close();
+    }
+  }
 
+  /**
+   * @param reader Reader aligned at record to read.
+   * @throws IOException
+   */
+  private void doRecord(final CsvReader reader) throws IOException {
+    int columnCount = reader.getColumnCount();
+    if (columnCount != this.columns.size()) {
+      throw new IOException("record#=" + reader.getCurrentRecord() +
+        " has column#=" + columnCount + " but expected#=" +
+        this.expectedColumnCount);
+    }
+    TODO: mapping
+  }
+
+  /**
+   * @param indexStore File to read index from.
+   * @return Current index or if <code>indexStore</code> does not exist, 0.
+   * @throws IOException
+   */
+  private long readCurrentIndex(final File indexStore) throws IOException {
+    if (!indexStore.exists()) return 0;
+    DataInputStream dis = new DataInputStream(new FileInputStream(indexStore));
+    try {
+      return dis.readLong();
+    } finally {
+      dis.close();
+    }
   }
 
   /**
